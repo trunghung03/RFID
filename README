@@ -1,0 +1,9 @@
+RC522   ESP32
+SDA     5
+SCK     18
+MOSI    23
+MISO    19
+IRQ     0
+GND     GND
+RST     16
+3,3V    3.3V

@@ -3,7 +3,7 @@ SDA     21
 SCK     18
 MOSI    23
 MISO    19
-IRQ     0
+IRQ     22
 GND     GND
-RST     2
+RST     17
 3,3V    3.3V

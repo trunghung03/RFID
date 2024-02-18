@@ -4,6 +4,7 @@
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <HTTPClient.h>
+#include <ArduinoJson.h>
 
 #include "httpsCert.h"
 
@@ -14,10 +15,12 @@
 
 String printHex(byte* buffer, byte bufferSize);
 void printDec(byte* buffer, byte bufferSize);
-void postGottenFingerprintId(String fingerId);
+void postGottenFingerprintId(String uid, String url);
 
 const char* ssid = "Okaeri";
 const char* password = "cocktail";
+const String check_url = "https://rfid-server.vercel.app/attendance/student";
+const String register_url = "https://rfid-server.vercel.app/utils/gotten";
 
 // const char* ssid = "FPTU_Student";
 // const char* password = "12345678";
@@ -37,7 +40,7 @@ void setup() {
   //connect wifi
   WiFi.mode(WIFI_STA);  //Optional
   WiFi.begin(ssid, password);
-  Serial.println("\nConnecting");
+  Serial.println("\nConnecting to wifi");
 
   while (WiFi.status() != WL_CONNECTED) {
     Serial.print(".");
@@ -95,7 +98,7 @@ void loop() {
     printDec(rfid.uid.uidByte, rfid.uid.size);
     Serial.println();
     
-    postGottenFingerprintId(NUID);
+    postGottenFingerprintId(NUID, check_url);
   } else {
     Serial.println(F("Card read previously."));
     Serial.println(F("The NUID tag is:"));
@@ -107,7 +110,7 @@ void loop() {
     printDec(rfid.uid.uidByte, rfid.uid.size);
     Serial.println();
 
-    postGottenFingerprintId(NUID);
+    postGottenFingerprintId(NUID, check_url);
   }
 
   // Halt PICC
@@ -141,7 +144,7 @@ void printDec(byte* buffer, byte bufferSize) {
   }
 }
 
-void postGottenFingerprintId(String uid) {
+void postGottenFingerprintId(String uid, String url) {
   if ((WiFi.status() == WL_CONNECTED)) {
 
     WiFiClientSecure *client = new WiFiClientSecure;
@@ -152,10 +155,11 @@ void postGottenFingerprintId(String uid) {
     client->setCACert(rootCACertificate);
     HTTPClient https;
 
-    https.begin(*client, "https://rfid-server.vercel.app/attendance/student");  // HTTP
+    https.begin(*client, url);  // HTTP
     https.addHeader("Content-Type", "application/json");
 
     String json = "{\"uid\":\"" + uid + "\"}";
+    Serial.println(json);
     int httpCode = https.POST(json);
 
     if (httpCode > 0) {
@@ -163,6 +167,14 @@ void postGottenFingerprintId(String uid) {
         Serial.println("HTTP Success.");
         const String& payload = https.getString();
         Serial.println(payload);
+
+        JsonDocument doc;
+        deserializeJson(doc, payload);
+
+        if (doc["message"] == "Not found") {
+          Serial.println("Not found. Registering!");
+          postGottenFingerprintId(uid, register_url);
+        }
       }
     } else {
       Serial.printf("[HTTP] POST... failed, error: %s\n", https.errorToString(httpCode).c_str());
@@ -170,5 +182,4 @@ void postGottenFingerprintId(String uid) {
     https.end();
   }
 }
-
 

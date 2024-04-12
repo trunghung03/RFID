@@ -5,22 +5,34 @@
 #include <WiFiClientSecure.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+#include <Fonts/FreeSans12pt7b.h>
 
 #include "httpsCert.h"
 
-#define SS_PIN 21
+#define SCREEN_WIDTH 128 // OLED display width, in pixels
+#define SCREEN_HEIGHT 32 // OLED display height, in pixels
+#define SS_PIN 25
 #define RST_PIN 2
 
 #define SERVER_IP "rfid-server.vercel.app"
 
+// Declaration for an SSD1306 display connected to I2C (SDA, SCL pins)
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
+
+
 String printHex(byte* buffer, byte bufferSize);
 void printDec(byte* buffer, byte bufferSize);
-void postGottenFingerprintId(String uid, String url);
+bool postGottenFingerprintId(String uid, String url);
+void screenPrint(String text);
 
 const char* ssid = "Okaeri";
 const char* password = "cocktail";
-const String check_url = "https://rfid-server.vercel.app/attendance/student";
-const String register_url = "https://rfid-server.vercel.app/utils/gotten";
+const String check_url = "https://rfid-next-kappa.vercel.app/api/bikeParking";
+//const String check_url = "https://rfid-next-kappa.vercel.app/api/attendance";
+const String register_url = "https://rfid-next-kappa.vercel.app/api/updateRFID";
 
 // const char* ssid = "FPTU_Student";
 // const char* password = "12345678";
@@ -37,6 +49,12 @@ void setup() {
   SPI.begin();      // Init SPI bus
   rfid.PCD_Init();  // Init MFRC522
 
+  if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) { // Address 0x3D for 128x64
+    Serial.println(F("SSD1306 allocation failed"));
+    for(;;);
+  }
+  display.setFont(&FreeSans12pt7b);
+
   //connect wifi
   WiFi.mode(WIFI_STA);  //Optional
   WiFi.begin(ssid, password);
@@ -44,8 +62,10 @@ void setup() {
 
   while (WiFi.status() != WL_CONNECTED) {
     Serial.print(".");
-    delay(100);
+    screenPrint("connecting");
+    delay(500);
   }
+  screenPrint("connected!");
 
   Serial.println("\nConnected to the WiFi network");
   Serial.print("Local ESP32 IP: ");
@@ -58,6 +78,8 @@ void setup() {
   Serial.println(F("This code scan the MIFARE Classsic NUID."));
   Serial.print(F("Using the following key:"));
   printHex(key.keyByte, MFRC522::MF_KEY_SIZE);
+
+  screenPrint("Scanning");
 }
 
 void loop() {
@@ -98,7 +120,9 @@ void loop() {
     printDec(rfid.uid.uidByte, rfid.uid.size);
     Serial.println();
     
-    postGottenFingerprintId(NUID, check_url);
+    if (!postGottenFingerprintId(NUID, check_url)) {
+      postGottenFingerprintId(NUID, register_url);
+    }
   } else {
     Serial.println(F("Card read previously."));
     Serial.println(F("The NUID tag is:"));
@@ -110,7 +134,9 @@ void loop() {
     printDec(rfid.uid.uidByte, rfid.uid.size);
     Serial.println();
 
-    postGottenFingerprintId(NUID, check_url);
+    if (!postGottenFingerprintId(NUID, check_url)) {
+      postGottenFingerprintId(NUID, register_url);
+    }
   }
 
   // Halt PICC
@@ -118,6 +144,17 @@ void loop() {
 
   // Stop encryption on PCD
   rfid.PCD_StopCrypto1();
+}
+
+void screenPrint(String text) {
+  display.clearDisplay();
+
+  display.setTextSize(1);
+  display.setTextColor(WHITE);
+  display.setCursor(10, 20);
+  // Display static text
+  display.println(text);
+  display.display(); 
 }
 
 
@@ -144,19 +181,22 @@ void printDec(byte* buffer, byte bufferSize) {
   }
 }
 
-void postGottenFingerprintId(String uid, String url) {
+bool postGottenFingerprintId(String uid, String url) {
   if ((WiFi.status() == WL_CONNECTED)) {
 
     WiFiClientSecure *client = new WiFiClientSecure;
     if (!client) {
       Serial.println("Unable to create wifi client.");
-      return;
+      return true;
     }
     client->setCACert(rootCACertificate);
     HTTPClient https;
 
     https.begin(*client, url);  // HTTP
     https.addHeader("Content-Type", "application/json");
+
+    Serial.print("Sending to ");
+    Serial.println(url);
 
     String json = "{\"uid\":\"" + uid + "\"}";
     Serial.println(json);
@@ -172,14 +212,18 @@ void postGottenFingerprintId(String uid, String url) {
         deserializeJson(doc, payload);
 
         if (doc["message"] == "Not found") {
-          Serial.println("Not found. Registering!");
-          postGottenFingerprintId(uid, register_url);
+          Serial.println("Card not found");
+          return false;
+        } else {
+          screenPrint(doc["insertData"]["studentId"]);
         }
       }
     } else {
       Serial.printf("[HTTP] POST... failed, error: %s\n", https.errorToString(httpCode).c_str());
     }
     https.end();
+    return true;
   }
+  return true;
 }
 
